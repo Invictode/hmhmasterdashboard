@@ -9,6 +9,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <!-- Chart.js for the trend graph -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body {
             font-family: 'Poppins', sans-serif;
@@ -20,42 +22,60 @@
             transform: translateY(-5px);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
         }
-        .tracker-link-card {
-             transition: transform 0.2s, background-color 0.2s;
-        }
-        .tracker-link-card:hover {
-            transform: translateY(-5px);
-            background-color: #f0fdf4; /* A light green for hover */
+        .chart-container {
+            position: relative;
+            height: 40vh;
+            width: 100%;
         }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-800">
+<body class="bg-gray-100 text-gray-800">
 
-    <div class="container mx-auto p-4 md:p-8">
+    <!-- This will be hidden by default and only shown when the user is authenticated -->
+    <div id="main-content" class="container mx-auto p-4 md:p-8" style="display: none;">
         
-        <header class="text-center mb-12">
-            <h1 class="text-4xl md:text-5xl font-bold text-slate-700">HMH Master Dashboard (Medical Officers only)</h1>
-            <p class="text-slate-500 mt-2">A real-time overview of all department trackers.</p>
+        <header class="flex justify-between items-center mb-12">
+            <div>
+                <h1 class="text-3xl md:text-4xl font-bold text-gray-800">HMH Master Dashboard</h1>
+                <p class="text-gray-500 mt-1">(Medical Officers only)</p>
+            </div>
+            <button id="sign-out-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition">
+                <i class="fa-solid fa-right-from-bracket mr-2"></i>Sign Out
+            </button>
         </header>
 
-        <!-- Section 1: Live Dashboard -->
+        <!-- Unified Dashboard Section -->
         <section class="mb-16">
-            <h2 class="text-2xl font-bold mb-6 border-l-4 border-teal-500 pl-4">Live Bed Count</h2>
+            <h2 class="text-2xl font-bold mb-6 border-l-4 border-teal-500 pl-4">Live Department Status</h2>
             <div id="dashboard-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
                 <!-- Dashboard cards will be inserted here by JavaScript -->
-                <div class="text-center p-4 text-slate-500">Loading department data...</div>
+                <p class="text-gray-500 col-span-full">Loading department data...</p>
             </div>
         </section>
+        
+        <!-- Trend Graph Section -->
+        <section class="mb-16">
+             <h2 class="text-2xl font-bold mb-6 border-l-4 border-indigo-500 pl-4">Hospital Admissions Trend (Last 7 Days)</h2>
+             <div class="bg-white p-4 md:p-6 rounded-lg shadow-lg chart-container">
+                <canvas id="admissions-chart"></canvas>
+             </div>
+        </section>
 
-        <!-- Section 2: Links to Trackers -->
+        <!-- ER Trend Graph Section -->
         <section>
-            <h2 class="text-2xl font-bold mb-6 border-l-4 border-sky-500 pl-4">Department Trackers</h2>
-            <div id="trackers-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
-                <!-- Tracker link cards will be inserted here by JavaScript -->
-            </div>
+             <h2 class="text-2xl font-bold mb-6 border-l-4 border-red-500 pl-4">ER 24-Hour Trend</h2>
+             <div class="bg-white p-4 md:p-6 rounded-lg shadow-lg chart-container">
+                <canvas id="er-trend-chart"></canvas>
+             </div>
         </section>
 
     </div>
+    
+    <!-- Loading/Unauthenticated Screen -->
+    <div id="loading-screen" class="flex items-center justify-center h-screen">
+        <p class="text-gray-500">Authenticating, please wait...</p>
+    </div>
+
 
     <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
@@ -65,8 +85,6 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
 
-            // --- IMPORTANT CONFIGURATION ---
-            // Use the exact same Firebase config from your other trackers.
             const firebaseConfig = {
                 apiKey: "AIzaSyC4gBqQlYh3vQ2wbfySpG-4z6Dk4dJ5hoc",
                 authDomain: "er-handover-c245b.firebaseapp.com",
@@ -77,80 +95,83 @@
                 measurementId: "G-0TGFDX9CWN"
             };
 
-            // --- Department Configuration ---
             const departments = [
                 { name: "Emergency", totalBeds: 14, collectionName: "er_patients", trackerURL: "https://invictode.github.io/ER-Tracker/index.html", icon: "fa-solid fa-kit-medical", color: "red" },
-                { name: "Medicine", totalBeds: 30, collectionName: "medicine_patients", trackerURL: "https://invictode.github.io/IMwardtracker/index.html", icon: "fa-solid fa-pills", color: "blue" },
+                { name: "Medicine", totalBeds: 17, collectionName: "medicine_patients", trackerURL: "https://invictode.github.io/IMwardtracker/index.html", icon: "fa-solid fa-pills", color: "blue" },
                 { name: "Pediatrics", totalBeds: 6, collectionName: "peds_patients", trackerURL: "https://invictode.github.io/PWtracker/index.html", icon: "fa-solid fa-child-reaching", color: "teal" },
-                { name: "Surgery", totalBeds: 25, collectionName: "surgery_patients", trackerURL: "https://invictode.github.io/SWtracker/index.html", icon: "fa-solid fa-scalpel", color: "indigo" },
-                { name: "Gynecology", totalBeds: 20, collectionName: "gynae_patients", trackerURL: "https://invictode.github.io/GWtracker/index.html", icon: "fa-solid fa-person-pregnant", color: "pink" }
+                { name: "Surgery", totalBeds: 16, collectionName: "surgery_patients", trackerURL: "https://invictode.github.io/SWtracker/index.html", icon: "fa-solid fa-scalpel", color: "indigo" },
+                { name: "Gynecology", totalBeds: 12, collectionName: "gynae_patients", trackerURL: "https://invictode.github.io/GWtracker/index.html", icon: "fa-solid fa-person-pregnant", color: "pink" }
             ];
             
-            // This appId should match the one used in your individual trackers' database paths.
-            // We'll use the projectId as a sensible default if no other __app_id is provided.
-            const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId;
+            const appId = firebaseConfig.projectId; // Use projectId as the consistent app ID
+            let db, auth;
+            let admissionsChartInstance, erTrendChartInstance;
+            let erData = { arrivals: [], admitted: [], discharged: [] }; // Store ER trend data
 
-
-            // Initialize Firebase
-            let db;
             try {
                 firebase.initializeApp(firebaseConfig);
                 db = firebase.firestore();
-                // FIX: Enable anonymous sign-in to ensure permissions are met.
-                firebase.auth().signInAnonymously().catch(error => {
-                    console.error("Anonymous sign-in failed:", error);
-                });
+                auth = firebase.auth();
             } catch (e) {
                 console.error("Firebase initialization failed.", e);
-                document.getElementById('dashboard-grid').innerHTML = '<p class="text-red-500 font-bold">Error: Could not connect to the database. Check console.</p>';
+                document.body.innerHTML = '<p class="text-red-500 font-bold p-8">FATAL ERROR: Could not initialize Firebase. Check console.</p>';
                 return;
             }
 
-            const dashboardGrid = document.getElementById('dashboard-grid');
-            const trackersGrid = document.getElementById('trackers-grid');
+            // --- Authentication Guard ---
+            auth.onAuthStateChanged(user => {
+                if (user) {
+                    document.getElementById('loading-screen').style.display = 'none';
+                    document.getElementById('main-content').style.display = 'block';
+                    initializeApp();
+                } else {
+                    if (window.location.pathname.indexOf('login.html') === -1) {
+                        window.location.href = 'login.html';
+                    }
+                }
+            });
 
-            // --- Functions to render the UI ---
+            function initializeApp() {
+                renderDashboard();
+                listenToDepartmentChanges();
+                setupOverallAdmissionsChart();
+                setupErTrendChart();
+                listenToErTrends();
+
+                document.getElementById('sign-out-btn').addEventListener('click', () => auth.signOut());
+            }
+
             function renderDashboard() {
+                const dashboardGrid = document.getElementById('dashboard-grid');
                 dashboardGrid.innerHTML = '';
-                trackersGrid.innerHTML = '';
-                
                 departments.forEach(dept => {
-                    const dashboardCard = document.createElement('div');
-                    dashboardCard.id = `dashboard-${dept.collectionName}`;
-                    dashboardCard.className = 'dashboard-card bg-white p-6 rounded-lg shadow-lg text-center border-b-4 border-slate-200';
-                    dashboardCard.innerHTML = `
-                        <div class="flex items-center justify-center mx-auto h-16 w-16 rounded-full bg-${dept.color}-100 mb-4">
-                            <i class="${dept.icon} text-3xl text-${dept.color}-600"></i>
+                    const cardLink = document.createElement('a');
+                    cardLink.href = dept.trackerURL;
+                    cardLink.target = "_blank";
+                    cardLink.className = `dashboard-card block bg-white p-6 rounded-lg shadow-lg border-t-4 border-${dept.color}-500`;
+                    cardLink.id = `dashboard-${dept.collectionName}`;
+                    cardLink.innerHTML = `
+                        <div class="flex justify-between items-start">
+                             <h3 class="text-xl font-bold text-gray-800">${dept.name}</h3>
+                             <i class="${dept.icon} text-2xl text-gray-400"></i>
                         </div>
-                        <h3 class="text-xl font-bold text-slate-700">${dept.name}</h3>
-                        <p class="text-slate-400 text-sm mb-4">Live Bed Status</p>
-                        <div class="text-4xl font-bold text-slate-800 mb-1">
+                        <p class="text-gray-400 text-sm mt-2 mb-4">Live Bed Status</p>
+                        <div class="text-4xl font-bold text-gray-800 mb-1">
                             <span id="occupied-${dept.collectionName}">--</span> / ${dept.totalBeds}
                         </div>
-                        <p class="text-sm text-slate-500">Occupied Beds</p>
+                        <p class="text-sm text-gray-500">Occupied Beds</p>
                         <div class="mt-4 text-green-600 font-semibold">
                             <span id="empty-${dept.collectionName}">--</span> Empty Beds
                         </div>
                     `;
-                    dashboardGrid.appendChild(dashboardCard);
-
-                    const trackerLink = document.createElement('a');
-                    trackerLink.href = dept.trackerURL;
-                    trackerLink.target = "_blank";
-                    trackerLink.className = `tracker-link-card block bg-white p-6 rounded-lg shadow-md text-center border-t-4 border-${dept.color}-500`;
-                    trackerLink.innerHTML = `
-                        <i class="${dept.icon} text-4xl text-${dept.color}-500 mb-4"></i>
-                        <h3 class="text-lg font-bold text-slate-700">${dept.name} Tracker</h3>
-                        <p class="text-sm text-sky-600 mt-2 hover:underline">Go to App <i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></p>
-                    `;
-                    trackersGrid.appendChild(trackerLink);
+                    dashboardGrid.appendChild(cardLink);
                 });
             }
 
-            // --- Function to fetch data and update cards ---
             function listenToDepartmentChanges() {
+                let allPatients = []; 
                 departments.forEach(dept => {
-                    // FIX: Use the full, correct path to the data collection.
+                    // FIX: Construct the full, correct path to the data collection.
                     const collectionPath = `/artifacts/${appId}/public/data/${dept.collectionName}`;
                     
                     db.collection(collectionPath).onSnapshot(snapshot => {
@@ -159,30 +180,111 @@
 
                         const occupiedEl = document.getElementById(`occupied-${dept.collectionName}`);
                         const emptyEl = document.getElementById(`empty-${dept.collectionName}`);
-                        const cardEl = document.getElementById(`dashboard-${dept.collectionName}`);
-
-                        if (occupiedEl && emptyEl && cardEl) {
+                        if (occupiedEl && emptyEl) {
                             occupiedEl.textContent = occupiedBeds;
                             emptyEl.textContent = emptyBeds;
-                            
-                            cardEl.classList.remove('border-green-400', 'border-yellow-400', 'border-red-400');
-                            if (emptyBeds > 5) cardEl.classList.add('border-green-400');
-                            else if (emptyBeds > 0) cardEl.classList.add('border-yellow-400');
-                            else cardEl.classList.add('border-red-400');
                         }
-                    }, err => {
-                        console.error(`Error listening to ${collectionPath}:`, err.message);
-                        const cardEl = document.getElementById(`dashboard-${dept.collectionName}`);
-                        if(cardEl) {
-                           cardEl.innerHTML += `<p class="text-xs text-red-500 mt-2">Could not load data. Check permissions.</p>`;
-                        }
-                    });
+                        
+                        const deptPatients = snapshot.docs.map(doc => doc.data());
+                        allPatients = allPatients.filter(p => p.ward !== dept.name).concat(deptPatients.map(p => ({...p, ward: dept.name})));
+                        updateOverallAdmissionsChart(allPatients);
+
+                    }, err => console.error(`Error listening to collection ${collectionPath}:`, err));
                 });
             }
 
-            // Initial Render and Start Listening
-            renderDashboard();
-            listenToDepartmentChanges();
+            function setupOverallAdmissionsChart() {
+                const ctx = document.getElementById('admissions-chart').getContext('2d');
+                admissionsChartInstance = new Chart(ctx, { type: 'line', data: { labels: [], datasets: [{ label: 'Total Daily Admissions', data: [], backgroundColor: 'rgba(101, 116, 205, 0.2)', borderColor: 'rgba(101, 116, 205, 1)', borderWidth: 2, tension: 0.1, fill: true }] }, options: { scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }, responsive: true, maintainAspectRatio: false } });
+            }
+            
+            function updateOverallAdmissionsChart(allPatients) {
+                const today = new Date();
+                const labels = []; const data = [];
+                for(let i = 6; i >= 0; i--) {
+                    const date = new Date(today);
+                    date.setDate(today.getDate() - i);
+                    labels.push(date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                    const startOfDay = new Date(date.setHours(0, 0, 0, 0));
+                    const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+                    const admissionsThisDay = allPatients.filter(p => p.admissionDate && new Date(p.admissionDate) >= startOfDay && new Date(p.admissionDate) <= endOfDay).length;
+                    data.push(admissionsThisDay);
+                }
+                admissionsChartInstance.data.labels = labels;
+                admissionsChartInstance.data.datasets[0].data = data;
+                admissionsChartInstance.update();
+            }
+
+            // --- ER TREND CHART FUNCTIONS ---
+            function listenToErTrends() {
+                const erBasePath = `/artifacts/${appId}/public/data/`;
+
+                db.collection(`${erBasePath}er_patients`).onSnapshot(snapshot => {
+                    erData.arrivals = snapshot.docs.map(doc => doc.data());
+                    updateErTrendChart();
+                });
+                db.collection(`${erBasePath}er_transferred`).onSnapshot(snapshot => {
+                    erData.admitted = snapshot.docs.map(doc => doc.data());
+                    updateErTrendChart();
+                });
+                db.collection(`${erBasePath}er_discharged`).onSnapshot(snapshot => {
+                    erData.discharged = snapshot.docs.map(doc => doc.data());
+                    updateErTrendChart();
+                });
+                 db.collection(`${erBasePath}er_lama_dor`).onSnapshot(snapshot => {
+                    const lamaDorData = snapshot.docs.map(doc => doc.data());
+                    erData.discharged = erData.discharged.concat(lamaDorData);
+                    updateErTrendChart();
+                });
+            }
+
+            function setupErTrendChart() {
+                const ctx = document.getElementById('er-trend-chart').getContext('2d');
+                erTrendChartInstance = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: [], // Hourly labels for last 24 hours
+                        datasets: [
+                            { label: 'Arrivals', data: [], backgroundColor: 'rgba(54, 162, 235, 0.6)' },
+                            { label: 'Admitted to Ward', data: [], backgroundColor: 'rgba(255, 159, 64, 0.6)' },
+                            { label: 'Discharged from ER', data: [], backgroundColor: 'rgba(75, 192, 192, 0.6)' }
+                        ]
+                    },
+                    options: { scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { stepSize: 1 } } }, responsive: true, maintainAspectRatio: false }
+                });
+            }
+
+            function updateErTrendChart() {
+                const now = new Date();
+                const labels = [];
+                const arrivalsData = [];
+                const admittedData = [];
+                const dischargedData = [];
+
+                for (let i = 23; i >= 0; i--) {
+                    const hourEnd = new Date(now);
+                    hourEnd.setHours(now.getHours() - i, 59, 59, 999);
+                    const hourStart = new Date(now);
+                    hourStart.setHours(now.getHours() - i, 0, 0, 0);
+
+                    labels.push(hourStart.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true }));
+
+                    const arrivalsThisHour = erData.arrivals.filter(p => p.admissionDate && new Date(p.admissionDate) >= hourStart && new Date(p.admissionDate) <= hourEnd).length;
+                    const admittedThisHour = erData.admitted.filter(p => p.transferTime && new Date(p.transferTime) >= hourStart && new Date(p.transferTime) <= hourEnd).length;
+                    const dischargedThisHour = erData.discharged.filter(p => (p.dischargeTime || p.eventTime) && new Date(p.dischargeTime || p.eventTime) >= hourStart && new Date(p.dischargeTime || p.eventTime) <= hourEnd).length;
+
+                    arrivalsData.push(arrivalsThisHour);
+                    admittedData.push(admittedThisHour);
+                    dischargedData.push(dischargedThisHour);
+                }
+
+                erTrendChartInstance.data.labels = labels;
+                erTrendChartInstance.data.datasets[0].data = arrivalsData;
+                erTrendChartInstance.data.datasets[1].data = admittedData;
+                erTrendChartInstance.data.datasets[2].data = dischargedData;
+                erTrendChartInstance.update();
+            }
+
         });
     </script>
 </body>
