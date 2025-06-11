@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HMH Master Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+        }
+        .dashboard-card {
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .dashboard-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .tracker-link-card {
+             transition: transform 0.2s, background-color 0.2s;
+        }
+        .tracker-link-card:hover {
+            transform: translateY(-5px);
+            background-color: #f0fdf4; /* A light green for hover */
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8">
+        
+        <header class="text-center mb-12">
+            <h1 class="text-4xl md:text-5xl font-bold text-slate-700">HMH Master Dashboard (Medical Officers only)</h1>
+            <p class="text-slate-500 mt-2">A real-time overview of all department trackers.</p>
+        </header>
+
+        <!-- Section 1: Live Dashboard -->
+        <section class="mb-16">
+            <h2 class="text-2xl font-bold mb-6 border-l-4 border-teal-500 pl-4">Live Bed Count</h2>
+            <div id="dashboard-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                <!-- Dashboard cards will be inserted here by JavaScript -->
+                <div class="text-center p-4 text-slate-500">Loading department data...</div>
+            </div>
+        </section>
+
+        <!-- Section 2: Links to Trackers -->
+        <section>
+            <h2 class="text-2xl font-bold mb-6 border-l-4 border-sky-500 pl-4">Department Trackers</h2>
+            <div id="trackers-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+                <!-- Tracker link cards will be inserted here by JavaScript -->
+            </div>
+        </section>
+
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+
+            // --- IMPORTANT CONFIGURATION ---
+            // Use the exact same Firebase config from your other trackers.
+            const firebaseConfig = {
+                apiKey: "AIzaSyC4gBqQlYh3vQ2wbfySpG-4z6Dk4dJ5hoc",
+                authDomain: "er-handover-c245b.firebaseapp.com",
+                projectId: "er-handover-c245b",
+                storageBucket: "er-handover-c245b.appspot.com",
+                messagingSenderId: "867309153832",
+                appId: "1:867309153832:web:a3a915736ac98709080f1d",
+                measurementId: "G-0TGFDX9CWN"
+            };
+
+            // --- Department Configuration ---
+            const departments = [
+                { name: "Emergency", totalBeds: 14, collectionName: "er_patients", trackerURL: "https://invictode.github.io/ER-Tracker/index.html", icon: "fa-solid fa-kit-medical", color: "red" },
+                { name: "Medicine", totalBeds: 30, collectionName: "medicine_patients", trackerURL: "https://invictode.github.io/IMwardtracker/index.html", icon: "fa-solid fa-pills", color: "blue" },
+                { name: "Pediatrics", totalBeds: 6, collectionName: "peds_patients", trackerURL: "https://invictode.github.io/PWtracker/index.html", icon: "fa-solid fa-child-reaching", color: "teal" },
+                { name: "Surgery", totalBeds: 25, collectionName: "surgery_patients", trackerURL: "https://invictode.github.io/SWtracker/index.html", icon: "fa-solid fa-scalpel", color: "indigo" },
+                { name: "Gynecology", totalBeds: 20, collectionName: "gynae_patients", trackerURL: "https://invictode.github.io/GWtracker/index.html", icon: "fa-solid fa-person-pregnant", color: "pink" }
+            ];
+            
+            // This appId should match the one used in your individual trackers' database paths.
+            // We'll use the projectId as a sensible default if no other __app_id is provided.
+            const appId = typeof __app_id !== 'undefined' ? __app_id : firebaseConfig.projectId;
+
+
+            // Initialize Firebase
+            let db;
+            try {
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+                // FIX: Enable anonymous sign-in to ensure permissions are met.
+                firebase.auth().signInAnonymously().catch(error => {
+                    console.error("Anonymous sign-in failed:", error);
+                });
+            } catch (e) {
+                console.error("Firebase initialization failed.", e);
+                document.getElementById('dashboard-grid').innerHTML = '<p class="text-red-500 font-bold">Error: Could not connect to the database. Check console.</p>';
+                return;
+            }
+
+            const dashboardGrid = document.getElementById('dashboard-grid');
+            const trackersGrid = document.getElementById('trackers-grid');
+
+            // --- Functions to render the UI ---
+            function renderDashboard() {
+                dashboardGrid.innerHTML = '';
+                trackersGrid.innerHTML = '';
+                
+                departments.forEach(dept => {
+                    const dashboardCard = document.createElement('div');
+                    dashboardCard.id = `dashboard-${dept.collectionName}`;
+                    dashboardCard.className = 'dashboard-card bg-white p-6 rounded-lg shadow-lg text-center border-b-4 border-slate-200';
+                    dashboardCard.innerHTML = `
+                        <div class="flex items-center justify-center mx-auto h-16 w-16 rounded-full bg-${dept.color}-100 mb-4">
+                            <i class="${dept.icon} text-3xl text-${dept.color}-600"></i>
+                        </div>
+                        <h3 class="text-xl font-bold text-slate-700">${dept.name}</h3>
+                        <p class="text-slate-400 text-sm mb-4">Live Bed Status</p>
+                        <div class="text-4xl font-bold text-slate-800 mb-1">
+                            <span id="occupied-${dept.collectionName}">--</span> / ${dept.totalBeds}
+                        </div>
+                        <p class="text-sm text-slate-500">Occupied Beds</p>
+                        <div class="mt-4 text-green-600 font-semibold">
+                            <span id="empty-${dept.collectionName}">--</span> Empty Beds
+                        </div>
+                    `;
+                    dashboardGrid.appendChild(dashboardCard);
+
+                    const trackerLink = document.createElement('a');
+                    trackerLink.href = dept.trackerURL;
+                    trackerLink.target = "_blank";
+                    trackerLink.className = `tracker-link-card block bg-white p-6 rounded-lg shadow-md text-center border-t-4 border-${dept.color}-500`;
+                    trackerLink.innerHTML = `
+                        <i class="${dept.icon} text-4xl text-${dept.color}-500 mb-4"></i>
+                        <h3 class="text-lg font-bold text-slate-700">${dept.name} Tracker</h3>
+                        <p class="text-sm text-sky-600 mt-2 hover:underline">Go to App <i class="fa-solid fa-arrow-up-right-from-square text-xs"></i></p>
+                    `;
+                    trackersGrid.appendChild(trackerLink);
+                });
+            }
+
+            // --- Function to fetch data and update cards ---
+            function listenToDepartmentChanges() {
+                departments.forEach(dept => {
+                    // FIX: Use the full, correct path to the data collection.
+                    const collectionPath = `/artifacts/${appId}/public/data/${dept.collectionName}`;
+                    
+                    db.collection(collectionPath).onSnapshot(snapshot => {
+                        const occupiedBeds = snapshot.size;
+                        const emptyBeds = dept.totalBeds - occupiedBeds;
+
+                        const occupiedEl = document.getElementById(`occupied-${dept.collectionName}`);
+                        const emptyEl = document.getElementById(`empty-${dept.collectionName}`);
+                        const cardEl = document.getElementById(`dashboard-${dept.collectionName}`);
+
+                        if (occupiedEl && emptyEl && cardEl) {
+                            occupiedEl.textContent = occupiedBeds;
+                            emptyEl.textContent = emptyBeds;
+                            
+                            cardEl.classList.remove('border-green-400', 'border-yellow-400', 'border-red-400');
+                            if (emptyBeds > 5) cardEl.classList.add('border-green-400');
+                            else if (emptyBeds > 0) cardEl.classList.add('border-yellow-400');
+                            else cardEl.classList.add('border-red-400');
+                        }
+                    }, err => {
+                        console.error(`Error listening to ${collectionPath}:`, err.message);
+                        const cardEl = document.getElementById(`dashboard-${dept.collectionName}`);
+                        if(cardEl) {
+                           cardEl.innerHTML += `<p class="text-xs text-red-500 mt-2">Could not load data. Check permissions.</p>`;
+                        }
+                    });
+                });
+            }
+
+            // Initial Render and Start Listening
+            renderDashboard();
+            listenToDepartmentChanges();
+        });
+    </script>
+</body>
+</html>
